@@ -1,0 +1,12 @@
+shiny
+pandas
+numpy
+meteostat
+shinywidgets
+plotly
+python-dotenv
+scipy
+statsmodels
+requests
+datetime
+libsass
