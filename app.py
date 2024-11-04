@@ -45,56 +45,46 @@ app_ui = ui.page_fluid(
             ), open = False
           )
         ),
-        ui.row(
-          ui.column(4, 
-            ui.output_ui("gas_usage")
-          ),
-          ui.column(4,
-            ui.output_ui("co2_emissions")
-          ),
-          ui.column(4,
-            ui.output_ui("gas_cost")
-          )
+        ui.layout_columns(
+          ui.output_ui("gas_usage"),
+          ui.output_ui("co2_emissions"),
+          ui.output_ui("gas_cost"),
+        col_widths = [4, 4, 4],
+        gap = "1rem"
         ),
-        ui.row(
-          ui.column(4, 
-            ui.output_ui("gas_compare")
-          ),
-          ui.column(4,
-            ui.output_ui("co2_diff")
-          ),
-          ui.column(4,
-            ui.output_ui("cost_diff")
-          )
+        ui.layout_columns(
+            ui.output_ui("gas_compare"),
+            ui.output_ui("co2_diff"),
+            ui.output_ui("cost_diff"),
+        col_widths = [4, 4, 4],
+        gap = "1rem"
         ),
-        ui.row(
-        ui.column(6,
-          output_widget("overall_gas_fig")
-          ),
-        ui.column(6,
-          output_widget("heating_gas_fig")
-          )
+        ui.layout_columns(
+          output_widget("overall_gas_fig"),
+          output_widget("heating_gas_fig"),
+        col_widths = [6, 6],
+        gap = "1rem"
         ),
-        ui.row(
-        ui.column(4,
-          output_widget("benchmark_fig")
-          ),
-        ui.column(4,
-          output_widget("weekly_climate_fig")
-          ),
-        ui.column(4,
-          output_widget("climate_benchmark_fig")
-          )
+        ui.layout_columns(
+          output_widget("benchmark_fig"),
+          output_widget("weekly_climate_fig"),
+          output_widget("climate_benchmark_fig"),
+        col_widths = [4, 4, 4],
+        gap = "1rem"
         ),
       ),
     ),
     ui.nav_panel("About",
-      ui.row(
-        ui.column(6,
-          ui.card(
-            methods_ui("methods"),
-          ),
-        class_="mx-auto")
+      ui.layout_columns(
+        None,
+        ui.card(
+          methods_ui("methods"),
+        ),
+        None,
+      col_widths={
+        "sm": 12,  
+        "lg": [3, 6, 3]    
+        },
       )
     )
   ),
