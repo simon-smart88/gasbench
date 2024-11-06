@@ -88,8 +88,7 @@ def methods_ui():
       ui.markdown("Provide context relative to others, show multiple years data in a single view, not just show a myriad of bar charts, for gas use consider the start of the year as when heating is switched on"),
       ui.h3("Modelling gas use by floor area and occupants"),
       ui.markdown("Reading through the report, this figure showing gas use throughout the year depending on floor area really stood out to me and it looked as if it should be possible to use it derive a model to predict daily energy use depending on floor area."),
-      # ui.img(src = "serl_fig_21.png"), #should work, but doesn't
-      ui.output_image("serl_fig_21", height = "500px"),
+      ui.img(src = "serl_fig_21.png", height = "500px"),
       ui.markdown("There are a few challenges to deal with though - the floor areas are grouped, the data is provided as the median per day for each month and the pattern of usage over the year isn't easy to describe mathematically. I thought it would be easier to model if the data was rearranged to begin in August, with the daily median values converted to monthly totals and the monthly values converted to cumulative values."),
       ui.tags.pre(
         ui.tags.code(code_one, {"class": "language-python"})
@@ -162,13 +161,5 @@ def methods_server(input, output, session):
   @render_plotly
   def occupancy_fig():
     return method_plots["occupancy_fig"]
-  
-  @render.image
-  def serl_fig_21():
-    from shiny.types import ImgData
-    from pathlib import Path
-    dir = Path(__file__).resolve().parent
-    img: ImgData = {"src": "serl_fig_21.png"}
-    return img
 
   

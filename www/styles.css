@@ -1,0 +1,15 @@
+summary {
+  font-size: 16pt;
+}
+
+details > summary {
+    list-style-type: '🛈';
+}
+
+details[open] > summary {
+    list-style-type: 'ⓘ️';
+}
+
+body {
+  background-color: #e8e8e8;
+}

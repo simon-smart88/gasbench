@@ -8,6 +8,8 @@ import numpy as np
 import os
 from dotenv import load_dotenv
 import pickle
+from pathlib import Path
+
 from methods import methods_ui, methods_server
 import functions as fx
 
@@ -20,7 +22,7 @@ month_list = ["January", "February", "March", "April", "May", "June", "July", "A
 month_days = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
 app_ui = ui.page_fluid(
-  
+  ui.tags.link(href="styles.css", rel="stylesheet"),
   ui.tags.head(
     ui.tags.link(
         rel="stylesheet",
@@ -60,16 +62,51 @@ app_ui = ui.page_fluid(
         gap = "1rem"
         ),
         ui.layout_columns(
-          output_widget("overall_gas_fig"),
-          output_widget("heating_gas_fig"),
-        col_widths = [6, 6],
+          ui.card(
+            ui.tags.details(
+              ui.tags.summary(" Overall gas use"),
+              ui.markdown("Your gas use over each of the last 5 years, compared to a property of the same size and the same number of occupants.")
+            ),
+            output_widget("overall_gas_fig")
+          ),
+          ui.card(
+            ui.tags.details(
+              ui.tags.summary(" Heating gas use"),
+                ui.markdown("Your estimated gas use for heating over each of the last 5 years, compared to a property of the same size and the same number of occupants. It is estimated by subtracting your average gas use in the summer months (June to August) from your total usage and includes an adjustment for the extra gas required to heat water in the winter.")
+            ),
+            output_widget("heating_gas_fig")
+          ),
+        col_widths = {"sm": [12],
+                      "lg": [6, 6]
+                      },
         gap = "1rem"
         ),
         ui.layout_columns(
-          output_widget("benchmark_fig"),
-          output_widget("weekly_climate_fig"),
-          output_widget("climate_benchmark_fig"),
-        col_widths = [4, 4, 4],
+          ui.card(
+            ui.tags.details(
+              ui.tags.summary(" Your gas use compared to others"),
+              ui.markdown("How your gas use compares to other properties of a similar size. The green area uses less than average and the red area more than average, with further to left or right indicating lower or higher use.")
+            ),
+          output_widget("benchmark_fig")
+          ),
+          ui.card(
+            ui.tags.details(
+              ui.tags.summary(" Weekly heating use and temperature"),
+              ui.markdown("How your gas use varies with temperature recorded at your nearest weather station. The weekly average temperature is shown against the average daily gas use each week.")
+            ),
+          output_widget("weekly_climate_fig")
+          ),
+          ui.card(
+            ui.tags.details(
+              ui.tags.summary(" Temperature and gas usage benchmark"),
+              ui.markdown("How your gas use changes as temperature changes compared to others. 15-20°C is taken as the baseline and compared to how average gas use changes at different temperatures.")
+            ),
+          output_widget("climate_benchmark_fig")
+          ),
+        col_widths = {"sm": [12],
+                      "md": [6, 6],
+                      "lg": [4, 4, 4]
+                      },
         gap = "1rem"
         ),
       ),
@@ -90,7 +127,7 @@ app_ui = ui.page_fluid(
   ),
   ui.markdown("Built with [Shiny for python](https://shiny.posit.co/py/). [Source code](https://github.com/simon-smart88/gasbench)"),
   title = "Gas benchmarking",
-  theme = ui.Theme("cerulean"),
+  theme = ui.Theme("cerulean")
         #cooking_bool = st.radio("Do you use gas for cooking?",("Yes", "No"))
 )
 
@@ -261,20 +298,20 @@ def server(input, output, session):
   @render_plotly
   def overall_gas_fig():
     plot = go.Figure()
+    plot.add_trace(go.Scatter(x = overall_typical_gas_data()["date"], y = overall_typical_gas_data()["cum"], name = "Typical", line = dict(width = 4)))
     for column in overall_gas_data().columns[0:]:
       plot.add_trace(go.Scatter(x = overall_gas_data().index, y = overall_gas_data()[column], name = column))
-    plot.add_trace(go.Scatter(x = overall_typical_gas_data()["date"], y = overall_typical_gas_data()["cum"], name = "Typical"))
-    plot.update_layout(title = "Overall gas use", xaxis_title = "", yaxis_title = "Gas use (kWh)", 
+    plot.update_layout(title = "", xaxis_title = "", yaxis_title = "Gas use (kWh)", 
       xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white")
     return plot
 
   @render_plotly
   def heating_gas_fig():
     plot = go.Figure()
+    plot.add_trace(go.Scatter(x = heating_typical_gas_data()["date"], y = heating_typical_gas_data()["cum"], name = "Typical", line = dict(width = 4)))
     for column in heating_gas_data().columns[0:]:
       plot.add_trace(go.Scatter(x = heating_gas_data().index, y = heating_gas_data()[column], name = column))
-    plot.add_trace(go.Scatter(x = heating_typical_gas_data()["date"], y = heating_typical_gas_data()["cum"], name = "Typical"))
-    plot.update_layout(title = "Heating gas use", xaxis_title = "", yaxis_title = "Gas use (kWh)", 
+    plot.update_layout(title = "", xaxis_title = "", yaxis_title = "Gas use (kWh)", 
       xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white")
     return plot
 
@@ -286,14 +323,15 @@ def server(input, output, session):
   @render_plotly
   def weekly_climate_fig():
     df = climate_data()
-    df.resample("W").mean()
+    df = df.drop(["interval_start", "interval_end"], axis = 1)
+    df = df.resample("W").mean()
     df["year"] = df.index.year 
     
     plot = go.Figure()
     for y in df.year.unique():
       ydf = df[df["year"] == y]
       plot.add_trace(go.Scatter(x = ydf["tavg"], y = ydf["consumption"], mode = "markers", name = str(y)))
-    plot.update_layout(title = "Weekly heating use and temperature", xaxis_title = "Average temperature (°C)", yaxis_title = "Daily gas use (kWh)", 
+    plot.update_layout(title = "", xaxis_title = "Average temperature (°C)", yaxis_title = "Daily gas use (kWh)", 
       xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white")
     return(plot)
 
@@ -323,13 +361,11 @@ def server(input, output, session):
     plot.update_layout(barmode = "group",
     xaxis_title = "Temperature (°C)",
     yaxis_title = "Daily gas use (kWh)",
-    title = "Temperature and gas usage benchmark",
+    title = "",
     xaxis = dict(showgrid = False), 
     yaxis = dict(showgrid = False), plot_bgcolor = "white")
     
     return plot
-    
-    
-    
-    
-app = App(app_ui, server)
+  
+www_dir = Path(__file__).parent / "www"
+app = App(app_ui, server, static_assets = www_dir)
