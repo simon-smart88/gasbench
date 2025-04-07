@@ -109,6 +109,23 @@ app_ui = ui.page_fluid(
                       },
         gap = "1rem"
         ),
+        ui.layout_columns(
+          ui.card(
+            ui.tags.details(
+              ui.tags.summary("Recent gas use"),
+              ui.markdown("How your recent daily gas use compares to what is expected given your own response to temperature last year and this year's temperatures.")
+            ),
+            output_widget("compare_recent_days_fig")
+          ),
+          ui.card(
+            ui.tags.details(
+              ui.tags.summary("Heating demand relative to standards"),
+              ui.markdown("How your estimated heating use in the previous heating season compares to various building standards. These typically assume that homes are heated to a constant temperature of 20 to 21°C")
+            ),
+          output_widget("heating_demand_benchmark_fig")
+          ),
+        col_widths = [6, 6]
+        )
       ),
     ),
     ui.nav_panel("About",
@@ -119,7 +136,8 @@ app_ui = ui.page_fluid(
         ),
         None,
       col_widths={
-        "sm": 12,  
+        "sm": 12,
+        "md": [2, 8, 2],
         "lg": [3, 6, 3]    
         },
       )
@@ -148,10 +166,10 @@ def server(input, output, session):
   
   @reactive.calc
   def octopus_secrets():
-    if input.octopus_key() == "" or input.octopus_gas_point() == "" or input.octopus_gas_meter() == "":
-      octopus_secrets = {"key": os.getenv("OCTOPUS_KEY"), "gas_point": os.getenv("OCTOPUS_GAS_POINT"), "gas_meter": os.getenv("OCTOPUS_GAS_METER")}
-    else:
-      octopus_secrets = {"key": input.octopus_key(), "gas_point": input.octopus_gas_point(), "gas_meter": input.octopus_gas_meter()}
+    # if input.octopus_key() == "" or input.octopus_gas_point() == "" or input.octopus_gas_meter() == "":
+    #   octopus_secrets = {"key": os.getenv("OCTOPUS_KEY"), "gas_point": os.getenv("OCTOPUS_GAS_POINT"), "gas_meter": os.getenv("OCTOPUS_GAS_METER")}
+    # else:
+    octopus_secrets = {"key": input.octopus_key(), "gas_point": input.octopus_gas_point(), "gas_meter": input.octopus_gas_meter()}
     return octopus_secrets
   
   @reactive.calc
@@ -163,8 +181,18 @@ def server(input, output, session):
     return postcode
 
   @reactive.calc
+  def gas_standing_cost():
+    return fx.get_cost_data("gas", "standing")
+    
+  @reactive.calc
+  def gas_unit_cost():
+    return fx.get_cost_data("gas", "unit")
+
+  @reactive.calc
   def daily_gas_data():
-    return fx.get_daily_gas_data(octopus_secrets())
+    # req(gas_standing_cost())
+    # req(gas_unit_cost())
+    return fx.get_daily_gas_data(octopus_secrets(), gas_standing_cost(), gas_unit_cost())
 
   @reactive.calc
   def overall_gas_data():
@@ -173,6 +201,10 @@ def server(input, output, session):
   @reactive.calc
   def overall_typical_gas_data():
     return fx.get_typical_gas(parameters, input.floor_area(), input.occupants(), month_list.index(input.start_month()) + 1, "overall")
+  
+  @reactive.calc
+  def typical_gas_cost():
+    return fx.get_typical_gas_cost(overall_typical_gas_data(), daily_gas_data())
   
   @reactive.calc
   def heating_gas_data():
@@ -211,12 +243,34 @@ def server(input, output, session):
     yesterday = (datetime.datetime.today()-datetime.timedelta(1)).strftime("%Y-%m-%d")
     climate_data = fx.get_climate_data(postcode(), "2020-11-01", yesterday)
     return pd.merge(daily_gas_data(), climate_data, right_index = True, left_index = True)
+
+  @reactive.calc
+  def climate_benchmark_data():
+    df = climate_data()
     
+    # df = fx.get_serl_data(2, "Figure_5")
+    # df = df[df["quantity"] == "Gas"]
+    # mean_df = df.groupby(["segment_3_value"]).mean().reset_index()
+    # mean_df["relative_value"] = mean_df["median"] / mean_df.loc[mean_df["segment_3_value"] == "15_to_20", "median"].squeeze()
+    
+    # benchmark data derived from above
+    temp_response = [13.09, 10.45, 7.07, 2.95, 1, 0.75]
+    bin_edges = [-5, 0, 5, 10, 15, 20, 25]
+    bin_labels = ["-5 to 0", "0 to 5", "5 to 10", "10 to 15", "15 to 20", "20 to 25"]
+    df["temperature_bins"] = pd.cut(df["tavg"], bins = bin_edges, labels = bin_labels, right = False)
+    df = df.tail(365)
+    mean_values = pd.DataFrame(df.groupby("temperature_bins")["consumption", "tavg"].mean())
+    mean_values["benchmark"] = temp_response
+    mean_values["benchmark"] = mean_values["benchmark"] * mean_values["consumption"][4]
+    return mean_values  
+
   @render.ui
   def gas_usage():
     return ui.value_box(
       "Gas used in the last year",
-      f"{round(latest_gas_sum(), 1)} kWh",
+      f"{int(latest_gas_sum())} kWh",
+      f"Enough to boil {int(latest_gas_sum() * 10.08 / 365)} kettles every day",
+      # 3600000 / 357000 (4200 j per l per C * 85 C)
       showcase = ui.tags.i(class_ = "fas fa-fire-flame-simple"),
       theme = "blue"
     )
@@ -228,22 +282,28 @@ def server(input, output, session):
       icon = "fas fa-arrow-down"
       diff = "lower"
       theme = "green"
+      note = "Well done!"
     else:
       icon = "fas fa-arrow-up"
       diff = "higher"
       theme = "red"
+      note = "Room for improvement"
       diff_percent = abs(diff_percent)
     return ui.value_box(
       "Gas use compared to typical",
       f"{round(diff_percent, 1)}% {diff}",
+      note,
       showcase = ui.tags.i(class_ = icon),
       theme = theme)
   
   @render.ui
   def co2_emissions():
+    co2 = int(latest_gas_sum() * 0.203)
     return ui.value_box(
       "CO₂ emissions in the last year",
-      f"{round(latest_gas_sum() * 0.203, 0)} kg",
+      f"{co2} kg",
+      f"{int(co2 / (117 * input.occupants()))}% of your typical carbon footprint",
+      # https://www.openaccessgovernment.org/the-average-british-carbon-footprint-is-five-times-over-paris-agreement-recommendations/152669/
       showcase = ui.tags.i(class_ = "fas fa-cloud"),
       theme = "blue"
     )
@@ -262,16 +322,18 @@ def server(input, output, session):
       co2_diff = abs(co2_diff)
     return ui.value_box(
     f"Total CO₂ emissions {diff} compared to typical",
-    f"{round(co2_diff, 0)} kg",
+    f"{int(co2_diff)} kg",
+    f"Equivalent to flying for {int(co2_diff / 90)} hours",
+    # source https://www.clevel.co.uk/flight-carbon-calculator/
     showcase = ui.tags.i(class_ = icon),
     theme = theme)
   
   @render.ui
   def gas_cost():
-    cost = ((latest_gas_sum() * 0.0587) + (0.298  * 365)) * 1.05
+    cost = daily_gas_data()["cost"].tail(365).sum()
     return ui.value_box(
       "Cost of gas in the last year",
-      f"£{round(cost, 0)}",
+      f"£{int(cost)}",
       "At current prices of 5.87p/kWh and 27.98p/day and 5% VAT",
       showcase = ui.tags.i(class_ = "fas fa-sterling-sign"),
       theme = "blue"
@@ -279,7 +341,11 @@ def server(input, output, session):
   
   @render.ui
   def cost_diff():
-    cost_diff = overall_gas_diff() * 0.0587
+    # req(gas_unit_cost())
+    # latest_unit = gas_unit_cost()["unit"].head(1).squeeze() / 100
+    # cost_diff = overall_gas_diff() * latest_unit
+    print(typical_gas_cost()["typical_cost"])
+    cost_diff = (typical_gas_cost()["typical_cost"].sum() - typical_gas_cost()["cost"].sum()) / 100
     if cost_diff > 0:
       icon = "fas fa-arrow-down"
       diff = "saved"
@@ -291,7 +357,8 @@ def server(input, output, session):
       cost_diff = abs(cost_diff)
     return ui.value_box(
     f"Total {diff} compared to typical",
-    f"£{round(cost_diff, 0)}",
+    f"£{int(cost_diff)}",
+    f"Equivalent to {int(cost_diff / 0.3)} Freddos",
     showcase = ui.tags.i(class_ = icon),
     theme = theme)
 
@@ -302,7 +369,7 @@ def server(input, output, session):
     for column in overall_gas_data().columns[0:]:
       plot.add_trace(go.Scatter(x = overall_gas_data().index, y = overall_gas_data()[column], name = column))
     plot.update_layout(title = "", xaxis_title = "", yaxis_title = "Gas use (kWh)", 
-      xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white")
+      xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white",legend=dict(y=1.1, orientation="h"))
     return plot
 
   @render_plotly
@@ -312,7 +379,7 @@ def server(input, output, session):
     for column in heating_gas_data().columns[0:]:
       plot.add_trace(go.Scatter(x = heating_gas_data().index, y = heating_gas_data()[column], name = column))
     plot.update_layout(title = "", xaxis_title = "", yaxis_title = "Gas use (kWh)", 
-      xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white")
+      xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white", legend=dict(y=1.1, orientation="h"))
     return plot
 
   @render_plotly
@@ -323,7 +390,7 @@ def server(input, output, session):
   @render_plotly
   def weekly_climate_fig():
     df = climate_data()
-    df = df.drop(["interval_start", "interval_end"], axis = 1)
+    df = df.drop(["interval_start"], axis = 1)
     df = df.resample("W").mean()
     df["year"] = df.index.year 
     
@@ -332,30 +399,17 @@ def server(input, output, session):
       ydf = df[df["year"] == y]
       plot.add_trace(go.Scatter(x = ydf["tavg"], y = ydf["consumption"], mode = "markers", name = str(y)))
     plot.update_layout(title = "", xaxis_title = "Average temperature (°C)", yaxis_title = "Daily gas use (kWh)", 
-      xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white")
+      xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white", legend=dict(y=1.1, orientation="h"))
     return(plot)
 
   @render_plotly
   def climate_benchmark_fig():
-    df = climate_data()
-    
-    # serl = fx.get_serl_data("Figure_6")
-    # serl = serl[serl["fuel"] == "Gas"]
-    # serl["resp"] = serl["value"] / min(serl["value"])
 
-    # benchmark data derived from above
-    temp_response = [0, 10.06, 6.61, 3.02, 1, 0]
-    bin_edges = [-5, 0, 5, 10, 15, 20, 25]
-    bin_labels = ["-5 to 0", "0 to 5", "5 to 10", "10 to 15", "15 to 20", "20 to 25"]
-    df["temperature_bins"] = pd.cut(df["tavg"], bins = bin_edges, labels = bin_labels, right = False)
-    
-    mean_values = pd.DataFrame(df.groupby("temperature_bins")["consumption"].mean())
-    mean_values["benchmark"] = temp_response
-    mean_values["benchmark"] = mean_values["benchmark"] * mean_values["consumption"][4]
+    df = climate_benchmark_data()
     
     plot = go.Figure(data=[
-    go.Bar(name="Benchmark", x = mean_values.index, y = mean_values["benchmark"]),
-    go.Bar(name="Your usage", x = mean_values.index, y = mean_values["consumption"])
+    go.Bar(name="Benchmark", x = df.index, y = df["benchmark"]),
+    go.Bar(name="Your usage", x = df.index, y = df["consumption"])
     ])
     
     plot.update_layout(barmode = "group",
@@ -363,9 +417,44 @@ def server(input, output, session):
     yaxis_title = "Daily gas use (kWh)",
     title = "",
     xaxis = dict(showgrid = False), 
-    yaxis = dict(showgrid = False), plot_bgcolor = "white")
+    yaxis = dict(showgrid = False), plot_bgcolor = "white", legend=dict(y=1.1, orientation="h"))
     
     return plot
+
+  @render_plotly
+  def compare_recent_days_fig():
+    yesterday = (datetime.datetime.today()-datetime.timedelta(1)).strftime("%Y-%m-%d")
+    df = fx.compare_years(climate_data(), yesterday)
+    # may not be sensible assuming this is always linear
+    baseline = climate_benchmark_data()[climate_benchmark_data()["tavg"] < 17.5]
+    df["expected"] = fx.expected_from_temperature(df["tavg"].tolist(), baseline["tavg"], baseline["consumption"])
+    years = df.index.year.unique()
+    plot = go.Figure()
+    x_values = df.index[df.index.year == years[-1]]
+    for year in years[-1:]:
+    #for year in years:
+      plot.add_trace(go.Bar(name=year, x=x_values, y=df["consumption"][df.index.year == year]))
+    plot.add_trace(go.Bar(name="Expected from temperature", x=x_values, y=df["expected"][df.index.year == year]))
+    plot.update_layout(xaxis = dict(tickformat = "%e %b"), plot_bgcolor = "white", legend=dict(y=1.1, orientation="h"))
+    return plot
+
+  @render_plotly
+  def heating_demand_benchmark_fig():
+    values = [15, 25, 30,	50,	85,	125]
+    standards = ["Passive House",	"EnerPHit",	"PHI Low Energy Building", "AECB CarbonLite Retrofit", "Average UK New Build", "Average UK House"]
+    # uses total of previous heating season
+    heating_demand = heating_gas_data().iloc[:,-2:-1].tail(1).squeeze()
+    demand_per_m2 = heating_demand / input.floor_area()
+    values.append(demand_per_m2)
+    standards.append("Your property")
+    sorted_data = sorted(zip(values, standards))
+    values, standards = zip(*sorted_data)
+    colors = ["RoyalBlue" if standard != "Your property" else "Red" for standard in standards]
+    plot = go.Figure()
+    plot.add_trace(go.Bar(y = standards, x = values, text = standards, textposition = "inside", orientation = "h", marker_color = colors))
+    plot.update_layout(xaxis = dict(title = "kWh/m²/yr"), plot_bgcolor = "white", legend=dict(y=1.1, orientation="h"), yaxis = dict(title = "", showticklabels = False))
+    return plot
+
   
 www_dir = Path(__file__).parent / "www"
 app = App(app_ui, server, static_assets = www_dir)

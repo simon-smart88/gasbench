@@ -12,7 +12,7 @@ from scipy.optimize import curve_fit
 import numpy as np
 import pickle
 
-df = fx.get_serl_data("Figure_21")
+df = fx.get_serl_data(1, "Figure_21")
 df["date"] = pd.to_datetime(df["summary_time"], format = "%b-%y")
 df["month"] = df["date"].dt.month
 df["month_dum"] = np.where(df["month"] < 7, df["month"] + 6, df["month"] - 6)
@@ -31,7 +31,7 @@ tdf = df.groupby(["floor_area"]).agg({"mean_floor_area": "min", "monthly_total":
 starting_values = [np.max(tdf["mean_floor_area"]), 1]
 total_from_area_popt, total_from_area_pcov = curve_fit(fx.pow_model, tdf["mean_floor_area"], tdf["monthly_total"],p0 = starting_values)
    
-odf = fx.get_serl_data("Figure_14")
+odf = fx.get_serl_data(1, "Figure_14")
 odf = odf.loc[odf["fuel"] == "Gas"]
 odf = odf.dropna(subset = ["mean_occupants"])
 starting_values = [odf["mean_occupants"].max(),(odf["mean_occupants"].max() - odf["mean_occupants"].min()) / odf["mean_occupants"].max(), (3/(odf["mean_floor_area"].max()-odf["mean_floor_area"].min()))]

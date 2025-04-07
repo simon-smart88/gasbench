@@ -3,12 +3,7 @@ from shinywidgets import output_widget, render_plotly
 import pickle
 
 code_one ="""
-def get_serl_data(figure):
-	req = requests.get("https://rdr.ucl.ac.uk/ndownloader/files/35857037")
-	df = pd.read_excel(req.content,sheet_name=figure,skiprows=1)
-	return(df)
-
-df = get_serl_data("Figure_21")
+df = get_serl_data(1, "Figure_21")
 df["date"] = pd.to_datetime(df["summary_time"], format = "%b-%y")
 df["month"] = df["date"].dt.month
 df["month_dum"] = np.where(df["month"] < 8, df["month"] + 5, df["month"] - 7)

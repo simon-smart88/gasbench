@@ -22,12 +22,14 @@ def pow_model(x, a, b):
 def exp_model(x,a,b,c):
 	return (a * (1-b * np.exp(-c*x)))
 
-def get_serl_data(figure):
-	df = pd.read_excel("SERL Stats Report (volume 1) - Tabular data v03b Final.xlsx", sheet_name = figure, skiprows = 1)
-	return df
+def get_serl_data(version, figure):
+    if version == 1:
+        df = pd.read_excel("SERL Stats Report (volume 1) - Tabular data v03b Final.xlsx", sheet_name = figure, skiprows = 1)
+    if version == 2:
+        df = pd.read_excel("SERL_Stats_Report_Aggregated_Tables_Vol_2.xlsx", sheet_name = figure, skiprows = 1)
+    return df
 
 def get_typical_gas(parameters, floor_area, occupants, start_month, model_type):
-
 	expected_occup = exp_model(floor_area, *parameters["occup_from_area_popt"])
 	expected_area = exp_model(np.array([occupants, expected_occup]), *parameters["area_from_occup_popt"])
 	occupancy_scaling_factor = expected_area[0] / expected_area[1]
@@ -53,22 +55,76 @@ def get_typical_gas(parameters, floor_area, occupants, start_month, model_type):
 	pdf["cum"] = pdf.daily.cumsum()
 	return pdf
 
-# fetch daily gas use and return with datetime and kwh conversions
-def get_daily_gas_data(octopus_secrets):
-	yesterday = (datetime.datetime.today()-datetime.timedelta(1)).strftime("%Y-%m-%d")
-	payload = {"period_from":"2020-10-31T00:00:00Z", "period_to" : yesterday, "page_size" : 25000, "group_by" : "day","order_by" : "period"}
-	session = requests.Session()
-	session.auth = (octopus_secrets["key"], "")
-	gas_point = octopus_secrets["gas_point"]
-	gas_meter = octopus_secrets["gas_meter"]
-	daily_gas_req = session.get(url=f"https://api.octopus.energy/v1/gas-meter-points/{gas_point}/meters/{gas_meter}/consumption/", params = payload).json()
-	df = pd.json_normalize(daily_gas_req["results"])
-	df["interval_start"] = pd.to_datetime(df["interval_start"].str.split("T").str[0])
-	df["date"] = df["interval_start"]
-	df = df.set_index("date")
-	df.index = pd.to_datetime(df.index)
-	df["consumption"] = df["consumption"] * (1 / m3_per_kwh)
-	return df
+
+def get_cost_data(fuel, charge):
+  if fuel == "gas":
+    base_url = "https://api.octopus.energy/v1/products/VAR-22-11-01/gas-tariffs/G-1R-VAR-22-11-01-A/"
+  if charge == "standing":
+    url = f"{base_url}standing-charges/"
+  if charge == "unit":
+    url = f"{base_url}standard-unit-rates/"
+  yesterday = (datetime.datetime.today()-datetime.timedelta(1)).strftime("%Y-%m-%d")
+  payload = {"period_from":"2020-10-31T00:00Z","period_to" : yesterday}
+  req = requests.get(url=url, params = payload).json()
+  df = pd.json_normalize(req["results"])
+  df = df[df["payment_method"] == "DIRECT_DEBIT"]
+  df = df.drop(["value_exc_vat", "payment_method"], axis = 1)
+  df.columns = [charge, "start_date", "end_date"]
+  df["start_date"] = pd.to_datetime(df["start_date"]).dt.tz_localize(None)
+  df["end_date"] = pd.to_datetime(df["end_date"]).dt.tz_localize(None)
+  df.loc[df["end_date"].isna(), "end_date"] = pd.to_datetime(yesterday)
+  gas_cost = pd.read_csv("gas_cost.csv")
+  gas_cost["start_date"] = pd.to_datetime(gas_cost["start_date"])
+  gas_cost["end_date"] = pd.to_datetime(gas_cost["end_date"])
+  charges = ["unit", "standing"]
+  to_drop = charges[not charges.index(charge)] 
+  df = pd.concat([df, gas_cost])
+  df = df.drop(to_drop, axis = 1)
+  return df
+
+# fetch daily gas use and return with datetime, kwh and cost conversions
+def get_daily_gas_data(octopus_secrets, standing_cost, unit_cost):
+  
+  if [k for k, v in octopus_secrets.items() if not v]:
+    df = pd.read_csv("2020-2025_data.csv")
+    df.columns = ["index", "interval_start", "consumption"]
+  else:
+    yesterday = (datetime.datetime.today()-datetime.timedelta(1)).strftime("%Y-%m-%d")
+    payload = {"period_from":"2020-10-31T00:00:00Z", "period_to" : yesterday, "page_size" : 25000, "group_by" : "day","order_by" : "period"}
+    session = requests.Session()
+    session.auth = (octopus_secrets["key"], "")
+    gas_point = octopus_secrets["gas_point"]
+    gas_meter = octopus_secrets["gas_meter"]
+    daily_gas_req = session.get(url=f"https://api.octopus.energy/v1/gas-meter-points/{gas_point}/meters/{gas_meter}/consumption/", params = payload).json()
+    df = pd.json_normalize(daily_gas_req["results"])
+    df["interval_start"] = pd.to_datetime(df["interval_start"].str.split("T").str[0])
+    df = df.drop([ "interval_end"], axis = 1)
+  
+  df["date"] = df["interval_start"]
+  df = df.set_index("date")
+  df.index = pd.to_datetime(df.index)
+  df["consumption"] = df["consumption"] * (1 / m3_per_kwh)
+  sc = standing_cost
+  uc = unit_cost
+  uc_idx = pd.IntervalIndex.from_arrays(uc["start_date"], uc["end_date"], closed = "both")
+  sc_idx = pd.IntervalIndex.from_arrays(sc["start_date"], sc["end_date"], closed = "both")
+  df["unit"] = df["interval_start"].apply(lambda x: uc.loc[uc_idx.contains(x), "unit"].sum())
+  df["standing"] = df["interval_start"].apply(lambda x: sc.loc[sc_idx.contains(x), "standing"].sum())
+  df["cost"] = ((df["unit"] * df["consumption"]) + df["standing"]) / 100
+  return df
+
+def get_typical_gas_cost(typical_gas, daily_gas):
+  
+  typical_gas['date'] = pd.to_datetime(typical_gas['date'])
+  daily_gas.index = pd.to_datetime(daily_gas.index)  
+
+  typical_gas['month_day'] = typical_gas['date'].dt.strftime('%m-%d')
+  daily_gas['month_day'] = daily_gas.index.strftime('%m-%d')
+  
+  merged = daily_gas.merge(typical_gas[['month_day', 'daily']], on='month_day', how='left')
+  merged['typical_cost'] = (merged['daily'] * merged['unit']) + merged['standing']
+  
+  return merged
 
 # fetch min and max temperature data
 def get_climate_data(postcode, start_date, end_date):
@@ -135,7 +191,7 @@ def bench_fig(mean, sd, actual, energy_type):
 	    block = pd.concat([block, close])
 	    fig.add_trace(go.Scatter(x = block["x"], y = block["y"], fill = "toself", fillcolor = c, line_color = c, name = n))
 	fig.add_vline(x = actual, line_width = 2, line_color = "black")
-	fig.update_layout(title = "Gas benchmark", xaxis_title = f"{energy_type.capitalize()} use (kWh)",
+	fig.update_layout(xaxis_title = f"{energy_type.capitalize()} use (kWh)", legend=dict(y=1.1, orientation="h"),
   	xaxis = dict(showgrid = False), yaxis=dict(showgrid = False), plot_bgcolor = "white")
 	if actual > mean:
 		fig.add_annotation(x = actual, y = max(use_dist) * 0.66, text = f"Your {energy_type} use <br> in the last year", showarrow = False, xanchor = "right")
@@ -144,4 +200,29 @@ def bench_fig(mean, sd, actual, energy_type):
 	fig.update_yaxes(visible = False)
 	return fig
 
+def compare_years(df, yesterday):
+  result = pd.DataFrame()
+  years = df.index.year.unique()
+  date = yesterday[5:]
+  
+  for year in years:
+    end_date = pd.to_datetime(f'{year}-{date}')
+    start_date = end_date - pd.Timedelta(days=30)
+    mask = (df.index >= start_date) & (df.index <= end_date)
+    result = pd.concat([result, df[mask]])
+  return result
 
+def expected_from_temperature(temperatures, baseline_temp, baseline_values):
+  from scipy.stats import linregress
+  model = linregress(baseline_temp, baseline_values)
+  slope = model[0]
+  intercept = model[1]
+  expected = []
+  for t in temperatures:
+    if t < 17.5:
+        expected.append(intercept + (slope * t)) 
+    if t >= 17.5:
+        expected.append(min(baseline_values))
+  return(expected)
+
+  
