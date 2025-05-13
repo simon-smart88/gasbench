@@ -1,9 +1,9 @@
-shiny
+shiny==1.2.0
 pandas
 numpy
 meteostat
-shinywidgets
-plotly
+shinywidgets==0.3.4
+plotly==5.9.0
 python-dotenv
 scipy
 statsmodels
