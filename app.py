@@ -259,7 +259,7 @@ def server(input, output, session):
     bin_labels = ["-5 to 0", "0 to 5", "5 to 10", "10 to 15", "15 to 20", "20 to 25"]
     df["temperature_bins"] = pd.cut(df["tavg"], bins = bin_edges, labels = bin_labels, right = False)
     df = df.tail(365)
-    mean_values = pd.DataFrame(df.groupby("temperature_bins")["consumption", "tavg"].mean())
+    mean_values = pd.DataFrame(df.groupby("temperature_bins")[["consumption", "tavg"]].mean())
     mean_values["benchmark"] = temp_response
     mean_values["benchmark"] = mean_values["benchmark"] * mean_values["consumption"][4]
     return mean_values  
@@ -342,9 +342,6 @@ def server(input, output, session):
   @render.ui
   def cost_diff():
     # req(gas_unit_cost())
-    # latest_unit = gas_unit_cost()["unit"].head(1).squeeze() / 100
-    # cost_diff = overall_gas_diff() * latest_unit
-    print(typical_gas_cost()["typical_cost"])
     cost_diff = (typical_gas_cost()["typical_cost"].sum() - typical_gas_cost()["cost"].sum()) / 100
     if cost_diff > 0:
       icon = "fas fa-arrow-down"
@@ -365,20 +362,20 @@ def server(input, output, session):
   @render_plotly
   def overall_gas_fig():
     plot = go.Figure()
-    plot.add_trace(go.Scatter(x = overall_typical_gas_data()["date"], y = overall_typical_gas_data()["cum"], name = "Typical", line = dict(width = 4)))
+    plot.add_trace(go.Scatter(x = overall_typical_gas_data()["date"].dt.strftime("%Y-%m-%d"), y = overall_typical_gas_data()["cum"], name = "Typical", line = dict(width = 4)))
     for column in overall_gas_data().columns[0:]:
-      plot.add_trace(go.Scatter(x = overall_gas_data().index, y = overall_gas_data()[column], name = column))
-    plot.update_layout(title = "", xaxis_title = "", yaxis_title = "Gas use (kWh)", 
+      plot.add_trace(go.Scatter(x = overall_gas_data().index.strftime("%Y-%m-%d"), y = overall_gas_data()[column], name = column))
+    plot.update_layout(title = "", xaxis_title = "", yaxis_title = "Gas use (kWh)", xaxis_type="date",
       xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white",legend=dict(y=1.1, orientation="h"))
     return plot
 
   @render_plotly
   def heating_gas_fig():
     plot = go.Figure()
-    plot.add_trace(go.Scatter(x = heating_typical_gas_data()["date"], y = heating_typical_gas_data()["cum"], name = "Typical", line = dict(width = 4)))
+    plot.add_trace(go.Scatter(x = heating_typical_gas_data()["date"].dt.strftime("%Y-%m-%d"), y = heating_typical_gas_data()["cum"], name = "Typical", line = dict(width = 4)))
     for column in heating_gas_data().columns[0:]:
-      plot.add_trace(go.Scatter(x = heating_gas_data().index, y = heating_gas_data()[column], name = column))
-    plot.update_layout(title = "", xaxis_title = "", yaxis_title = "Gas use (kWh)", 
+      plot.add_trace(go.Scatter(x = heating_gas_data().index.strftime("%Y-%m-%d"), y = heating_gas_data()[column], name = column))
+    plot.update_layout(title = "", xaxis_title = "", yaxis_title = "Gas use (kWh)", xaxis_type="date",
       xaxis = dict(tickformat = "%e %b", showgrid = False), yaxis = dict(showgrid = False), plot_bgcolor = "white", legend=dict(y=1.1, orientation="h"))
     return plot
 
@@ -390,7 +387,8 @@ def server(input, output, session):
   @render_plotly
   def weekly_climate_fig():
     df = climate_data()
-    df = df.drop(["interval_start"], axis = 1)
+    # df = df.drop(["interval_start"], axis = 1)
+    df = df.select_dtypes(include=['number']) 
     df = df.resample("W").mean()
     df["year"] = df.index.year 
     
@@ -430,7 +428,7 @@ def server(input, output, session):
     df["expected"] = fx.expected_from_temperature(df["tavg"].tolist(), baseline["tavg"], baseline["consumption"])
     years = df.index.year.unique()
     plot = go.Figure()
-    x_values = df.index[df.index.year == years[-1]]
+    x_values = df.index[df.index.year == years[-1]].strftime("%Y-%m-%d")
     for year in years[-1:]:
     #for year in years:
       plot.add_trace(go.Bar(name=year, x=x_values, y=df["consumption"][df.index.year == year]))

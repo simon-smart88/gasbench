@@ -158,21 +158,23 @@ def pivot_to_season(df, start_month, typical_type, month_offset, month_number):
     #need to use conversion factor here...
     
   month_abbrev = month_list[month_list.index(start_month)-1].upper()[0:3]
-  month_filter = "A-" + month_abbrev
+  month_filter = "Y-" + month_abbrev
 
   df["season"] = df.index.to_period(month_filter).year - 1
   df["dos"] = (df.index - df.index.to_period(month_filter).start_time).days + 1
   df["cumulative"] = df.groupby(pd.Grouper(freq=month_filter))["consumption"].cumsum()
   
+  piv = pd.pivot_table(df, index = ["dos"], columns=["season"], values=["cumulative"])
+  piv = piv.bfill()
+
   pivot_index = pd.date_range(start="2023-" + "{:02d}".format(month_number)+"-01", end = "2024-" + "{:02d}".format(month_number-1)+"-"+str(month_days[month_number]))
   year_index = []
   for y in list(pd.unique(df["season"])):
       year_index.append(str(y)+"-"+str(y+1))
-  
-  piv = pd.pivot_table(df, index = ["dos"], columns=["season"], values=["cumulative"])
-  piv = piv.fillna(method="bfill")
   piv.index = pivot_index
   piv.columns = year_index
+  # remove years that start with zeroes
+  piv = piv.loc[:, ~(piv.diff().iloc[1:10] == 0).all()]
   return piv
 
 def bench_fig(mean, sd, actual, energy_type):
